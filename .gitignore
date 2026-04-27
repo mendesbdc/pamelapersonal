@@ -7,6 +7,7 @@ google-meet-url-for-apk.txt
 # Dependências e build web
 node_modules/
 dist/
+*.tsbuildinfo
 
 # Logs e túneis (não subir)
 *.log
@@ -16,7 +17,9 @@ dist/
 # JDK e Android SDK locais (centenas de MB)
 tools/
 
-# Android — artefactos de build
+# Android — artefactos de build / JVM crash dumps
+android/**/hs_err*.mdmp
+android/**/*.mdmp
 android/**/build/
 android/**/intermediates/
 android/**/outputs/
