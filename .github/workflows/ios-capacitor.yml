@@ -52,11 +52,11 @@ jobs:
       - name: Capacitor — sync iOS
         run: npx cap sync ios
 
-      # Sem .xcscheme partilhado, -scheme App falha no CI; -target App funciona. Há scheme em xcshareddata/xcschemes/.
+      # -target + -destination provoca exit 64 no xcodebuild; com App.xcscheme em xcshareddata, usar -scheme App.
       - name: Xcode — compilar para simulador (validação)
         run: |
           set -e
-          xcodebuild -project "ios/App/App.xcodeproj" -target App -configuration Debug \
+          xcodebuild -project "ios/App/App.xcodeproj" -scheme App -configuration Debug \
             -sdk iphonesimulator \
             -destination "generic/platform=iOS Simulator" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
