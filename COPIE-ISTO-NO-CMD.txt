@@ -1,0 +1,30 @@
+================================================================================
+  Enviar o projecto para o GitHub (copie TUDO, linha a linha, no CMD)
+  Abra o "Prompt de Comandos" pelo Menu Iniciar (nao o terminal do Cursor).
+================================================================================
+
+cd /d "C:\Users\Administrator\Desktop\pamelapersonal"
+
+git --version
+   (se disser "nao reconhecido", reinstale o Git e REINICIE o PC, depois volte aqui)
+
+git init
+git add .
+git config user.name "mendesbdc"
+git config user.email "mendesbdc@users.noreply.github.com"
+git commit -m "Primeiro envio Pâmela Personal"
+git branch -M main
+git remote remove origin 2>nul
+git remote add origin https://github.com/mendesbdc/pamelapersonal.git
+git push -u origin main
+
+   (O ultimo pede login: use o navegador ou um Personal Access Token do GitHub)
+
+Se der certo, abra: https://github.com/mendesbdc/pamelapersonal
+
+================================================================================
+
+Alternativa com interface: abra o GitHub Desktop - File - Add local repository -
+  escolha esta pasta - Publish repository (conta mendesbdc, nome pamelapersonal).
+
+================================================================================

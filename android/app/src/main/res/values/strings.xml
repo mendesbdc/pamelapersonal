@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pâmela Mendes Personal</string>
+    <string name="title_activity_main">Pâmela Mendes Personal</string>
+    <string name="package_name">br.com.pamelamendespersonal.app</string>
+    <string name="custom_url_scheme">br.com.pamelamendespersonal.app</string>
+</resources>

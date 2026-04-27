@@ -1,0 +1,41 @@
+# Ambiente e segredos
+.env
+.env.production.local
+api-url-for-apk.txt
+google-meet-url-for-apk.txt
+
+# Dependências e build web
+node_modules/
+dist/
+
+# Logs e túneis (não subir)
+*.log
+.cloudflared*
+**/.cloudflared*
+
+# JDK e Android SDK locais (centenas de MB)
+tools/
+
+# Android — artefactos de build
+android/**/build/
+android/**/intermediates/
+android/**/outputs/
+android/**/.cxx/
+android/.gradle/
+android/captures/
+android/**/app-build*/
+*.apk
+local.properties
+
+# iOS — caches locais
+ios/**/build/
+**/*.xcuserstate
+**/xcuserdata/
+
+# Sistema
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# APK gerado (opcional: tire o comentário se NÃO quiseres versionar releases)
+# releases/

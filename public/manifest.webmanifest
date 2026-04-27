@@ -1,0 +1,19 @@
+{
+  "name": "Pâmela Mendes Personal",
+  "short_name": "PM Personal",
+  "description": "Área do aluno Pâmela Mendes Personal para treinos, avaliações e assinatura.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f0a1a",
+  "theme_color": "#a855f7",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

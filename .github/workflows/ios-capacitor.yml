@@ -1,0 +1,71 @@
+# Compila o site, sincroniza a pasta ios/ e tenta compilar o Xcode para simulador (sem dispositivo físico).
+# IPA para iPhone + App Store: precisam de assinatura Apple (segredos extra ou Fastlane) — ver docs/IOS-CI.md
+
+name: iOS (Capacitor)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-sync:
+    name: Web + cap sync + Xcode (simulador)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: .env de produção a partir de segredos
+        run: |
+          set -e
+          API="${{ secrets.VITE_API_URL }}"
+          MEET="${{ secrets.VITE_GOOGLE_MEET_URL }}"
+          if [ -z "$API" ]; then
+            API="https://defina-segredo-vite-api-url.repositorio"
+            echo "::warning::Segredo VITE_API_URL vazio. Coloque em Settings → Secrets → VITE_API_URL. Usando placeholder só para a build passar."
+          fi
+          echo "VITE_API_URL=$API" > .env.production.local
+          if [ -n "$MEET" ]; then
+            echo "VITE_GOOGLE_MEET_URL=$MEET" >> .env.production.local
+          fi
+          echo "Ficheiro .env.production.local criado (2 linhas, sem conteúdo no log)."
+
+      - name: Dependências e build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Capacitor — sync iOS
+        run: npx cap sync ios
+
+      - name: Xcode — compilar para simulador (validação)
+        run: |
+          set -e
+          xcodebuild -project "ios/App/App.xcodeproj" -scheme App -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Artifacts — ficheiros web em ios após sync
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app-public
+          path: ios/App/App/public
+          if-no-files-found: warn
+          retention-days: 7

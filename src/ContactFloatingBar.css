@@ -1,0 +1,81 @@
+.contact-fab-group {
+  position: fixed;
+  z-index: 10050;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: calc(100vw - 20px);
+}
+
+.contact-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.9rem 0.6rem 0.65rem;
+  border-radius: 999px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.contact-fab--whatsapp {
+  background: #25d366;
+  box-shadow: 0 8px 28px rgba(37, 211, 102, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.contact-fab--whatsapp:hover {
+  transform: scale(1.04);
+  box-shadow: 0 10px 32px rgba(37, 211, 102, 0.55), 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.contact-fab--meet {
+  background: linear-gradient(135deg, #0f9d58 0%, #0d47a1 100%);
+  box-shadow: 0 8px 28px rgba(15, 157, 88, 0.4), 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.contact-fab--meet:hover {
+  transform: scale(1.04);
+  box-shadow: 0 10px 32px rgba(15, 157, 88, 0.5), 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.contact-fab:focus-visible {
+  outline: 2px solid #f5f3ff;
+  outline-offset: 3px;
+}
+
+.contact-fab__icon {
+  display: flex;
+  line-height: 0;
+  flex-shrink: 0;
+}
+
+.contact-fab__label {
+  white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  .contact-fab__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .contact-fab {
+    position: relative;
+    padding: 0.7rem 0.75rem;
+  }
+}

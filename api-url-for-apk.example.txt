@@ -1,0 +1,4 @@
+# Copie este ficheiro para api-url-for-apk.txt e ajuste o IP/porta.
+# O telemovel tem de alcancar este endereco na mesma rede (ou Internet).
+
+http://192.168.1.100:3334
