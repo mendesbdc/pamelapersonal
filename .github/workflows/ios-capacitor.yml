@@ -25,7 +25,7 @@ jobs:
       - name: Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -52,10 +52,11 @@ jobs:
       - name: Capacitor — sync iOS
         run: npx cap sync ios
 
+      # Sem .xcscheme partilhado, -scheme App falha no CI; -target App funciona. Há scheme em xcshareddata/xcschemes/.
       - name: Xcode — compilar para simulador (validação)
         run: |
           set -e
-          xcodebuild -project "ios/App/App.xcodeproj" -scheme App -configuration Debug \
+          xcodebuild -project "ios/App/App.xcodeproj" -target App -configuration Debug \
             -sdk iphonesimulator \
             -destination "generic/platform=iOS Simulator" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
