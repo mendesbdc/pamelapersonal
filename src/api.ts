@@ -23,7 +23,7 @@ function apiUrl(path: string) {
 const tokenKey = "pamelapersonal_admin_token";
 const studentTokenKey = "pamelapersonal_student_token";
 
-export type SubscriptionPlanId = "monthly" | "quarterly" | "semiannual";
+export type SubscriptionPlanId = "monthly" | "quarterly" | "semiannual" | "trial_free";
 export type EvaluationPreference = "team" | "send_info";
 export type PaymentStatus = "pending" | "confirmed" | "failed" | "refunded" | string;
 
@@ -233,8 +233,9 @@ export const api = {
       status: string;
       subscriptionStatus: string;
       paymentStatus: PaymentStatus;
-      paymentUrl: string;
+      paymentUrl: string | null;
       message: string;
+      trialEndsAt?: string | null;
     }>(
       "/api/public/students",
       {

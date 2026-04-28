@@ -297,6 +297,16 @@ function formatDate(value: string) {
   return date.toLocaleDateString("pt-BR");
 }
 
+/** Dias restantes do trial (0 = expira hoje ou já passou). */
+function trialDaysRemaining(endsAt: string | null | undefined): number | null {
+  if (!endsAt) return null;
+  const end = new Date(endsAt.includes("T") ? endsAt : `${endsAt}T23:59:59`).getTime();
+  if (Number.isNaN(end)) return null;
+  const diff = end - Date.now();
+  if (diff <= 0) return 0;
+  return Math.ceil(diff / 86400000);
+}
+
 function workoutInputKey(dayIndex: number, exerciseName: string) {
   return `${dayIndex}:${exerciseName}`;
 }
@@ -615,10 +625,15 @@ function StudentForm({
   const [phone, setPhone] = useState("");
   const [observations, setObservations] = useState("");
   const [subscriptionPlanId, setSubscriptionPlanId] = useState<SubscriptionPlanId>("monthly");
+  const [publicSignupMode, setPublicSignupMode] = useState<"trial" | "paid">("trial");
   const [evaluationPreference, setEvaluationPreference] = useState<EvaluationPreference>("team");
-  const [created, setCreated] = useState<{ id: number; message: string; paymentUrl?: string } | null>(
-    null
-  );
+  const [created, setCreated] = useState<{
+    id: number;
+    message: string;
+    paymentUrl?: string;
+    isTrial?: boolean;
+    trialEndsAt?: string | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const temporaryPlan = useMemo(() => generateTrainingPlan(profile), [profile]);
@@ -636,7 +651,7 @@ function StudentForm({
         phone,
         observations,
         temporaryPlan,
-        subscriptionPlanId,
+        subscriptionPlanId: mode === "public" && publicSignupMode === "trial" ? "trial_free" : subscriptionPlanId,
         evaluationPreference,
         evaluationSlotId: null
       };
@@ -650,7 +665,9 @@ function StudentForm({
       setCreated({
         id: result.id,
         message: successMessage,
-        paymentUrl: "paymentUrl" in result ? String(result.paymentUrl) : undefined
+        paymentUrl: result.paymentUrl ?? undefined,
+        isTrial: "subscriptionStatus" in result && result.subscriptionStatus === "trial",
+        trialEndsAt: "trialEndsAt" in result ? result.trialEndsAt : undefined
       });
       onCreated?.();
       if (mode === "public") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -662,6 +679,31 @@ function StudentForm({
   }
 
   if (created && mode === "public") {
+    if (created.isTrial) {
+      return (
+        <section className="panel result-panel">
+          <p className="eyebrow">Conta criada</p>
+          <h2>Período gratuito ativo</h2>
+          <p className="hero-copy">{created.message}</p>
+          <div className="warnings">
+            <p>
+              Guarde seu acesso: usuário <strong>{username}</strong> e a senha que você criou.
+            </p>
+            {created.trialEndsAt ? (
+              <p>
+                Acesso gratuito até aproximadamente <strong>{formatDate(created.trialEndsAt)}</strong>. Depois,
+                escolha um plano na área do aluno para continuar.
+              </p>
+            ) : (
+              <p>Depois do período gratuito, escolha um plano na área do aluno para continuar.</p>
+            )}
+            <p>
+              Avaliação informada: <strong>{evaluationPreferenceLabels[evaluationPreference]}</strong>.
+            </p>
+          </div>
+        </section>
+      );
+    }
     return (
       <section className="panel result-panel">
         <p className="eyebrow">Cadastro recebido</p>
@@ -706,13 +748,43 @@ function StudentForm({
         <h2>{mode === "public" ? "Preencha seus dados" : "Cadastrar aluno manualmente"}</h2>
         <p>
           {mode === "public"
-            ? "Escolhe o plano, me diz como prefere a avaliação e segue para o pagamento — daqui a pouco a gente se vê no app."
+            ? "Experimente grátis por 14 dias ou assine já — escolha como prefere a avaliação."
             : "Cadastro manual já fica ativo para acompanhamento da personal."}
         </p>
       </div>
 
       {created && mode === "admin" ? <p className="success">{created.message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
+
+      {mode === "public" ? (
+        <fieldset className="evaluation-section">
+          <legend>Como quer começar?</legend>
+          <div className="plan-choice-grid">
+            <label className={`choice-card ${publicSignupMode === "trial" ? "selected" : ""}`}>
+              <input
+                checked={publicSignupMode === "trial"}
+                name="publicSignupMode"
+                onChange={() => setPublicSignupMode("trial")}
+                type="radio"
+              />
+              <strong>14 dias grátis para testar</strong>
+              <span>Sem cartão agora — explore a consultoria e depois escolha um plano.</span>
+              <p>Ideal para experimentar e dar sugestões antes de assinar.</p>
+            </label>
+            <label className={`choice-card ${publicSignupMode === "paid" ? "selected" : ""}`}>
+              <input
+                checked={publicSignupMode === "paid"}
+                name="publicSignupMode"
+                onChange={() => setPublicSignupMode("paid")}
+                type="radio"
+              />
+              <strong>Assinar um plano agora</strong>
+              <span>Pagamento via Mercado Pago após o cadastro.</span>
+              <p>Mensal, trimestral ou semestral — com benefícios de avaliação conforme o plano.</p>
+            </label>
+          </div>
+        </fieldset>
+      ) : null}
 
       <label className="field field-full">
         <span>Nome</span>
@@ -848,75 +920,85 @@ function StudentForm({
         />
       </label>
 
+      {mode === "public" && publicSignupMode === "paid" ? (
+        <fieldset className="evaluation-section">
+          <legend>Escolha seu plano</legend>
+          <div className="plan-choice-grid">
+            {subscriptionPlans.map((plan) => (
+              <label
+                className={`choice-card ${subscriptionPlanId === plan.id ? "selected" : ""}`}
+                key={plan.id}
+              >
+                <input
+                  checked={subscriptionPlanId === plan.id}
+                  name="subscriptionPlan"
+                  onChange={() => setSubscriptionPlanId(plan.id)}
+                  type="radio"
+                />
+                <strong>{plan.name}</strong>
+                <strong className="plan-price">{plan.price}</strong>
+                <span>{plan.duration}</span>
+                <p>{plan.description}</p>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
+
       {mode === "public" ? (
-        <>
-          <fieldset className="evaluation-section">
-            <legend>Escolha seu plano</legend>
-            <div className="plan-choice-grid">
-              {subscriptionPlans.map((plan) => (
-                <label
-                  className={`choice-card ${subscriptionPlanId === plan.id ? "selected" : ""}`}
-                  key={plan.id}
-                >
-                  <input
-                    checked={subscriptionPlanId === plan.id}
-                    name="subscriptionPlan"
-                    onChange={() => setSubscriptionPlanId(plan.id)}
-                    type="radio"
-                  />
-                  <strong>{plan.name}</strong>
-                  <strong className="plan-price">{plan.price}</strong>
-                  <span>{plan.duration}</span>
-                  <p>{plan.description}</p>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <fieldset className="evaluation-section">
-            <legend>Avaliação</legend>
-            <div className="plan-choice-grid">
-              <label className={`choice-card ${evaluationPreference === "team" ? "selected" : ""}`}>
-                <input
-                  checked={evaluationPreference === "team"}
-                  name="evaluationPreference"
-                  onChange={() => setEvaluationPreference("team")}
-                  type="radio"
-                />
-                <strong>Fazer comigo (presencial)</strong>
-                <span>
-                  {subscriptionPlanId === "monthly"
-                    ? `Taxa de avaliação à parte: ${evaluationFeeLabel}`
+        <fieldset className="evaluation-section">
+          <legend>Avaliação</legend>
+          <div className="plan-choice-grid">
+            <label className={`choice-card ${evaluationPreference === "team" ? "selected" : ""}`}>
+              <input
+                checked={evaluationPreference === "team"}
+                name="evaluationPreference"
+                onChange={() => setEvaluationPreference("team")}
+                type="radio"
+              />
+              <strong>Fazer comigo (presencial)</strong>
+              <span>
+                {publicSignupMode === "paid" && subscriptionPlanId === "monthly"
+                  ? `Taxa de avaliação à parte: ${evaluationFeeLabel}`
+                  : publicSignupMode === "trial"
+                    ? "Durante o período gratuito, sem taxa extra de avaliação presencial."
                     : "Avaliações inclusas no plano"}
-                </span>
-                <p>
-                  No mensal há taxa de avaliação. No trimestral são 2 avaliações de brinde e no semestral são
-                  3.
-                </p>
-              </label>
-              <label className={`choice-card ${evaluationPreference === "send_info" ? "selected" : ""}`}>
-                <input
-                  checked={evaluationPreference === "send_info"}
-                  name="evaluationPreference"
-                  onChange={() => setEvaluationPreference("send_info")}
-                  type="radio"
-                />
-                <strong>Enviar minhas informações</strong>
-                <span>Sem agendar avaliação presencial agora</span>
-                <p>Você me passa os dados e eu deixo sua ficha pronta para acompanhar você de perto.</p>
-              </label>
-            </div>
-          </fieldset>
-        </>
+              </span>
+              <p>
+                {publicSignupMode === "paid"
+                  ? "No mensal há taxa de avaliação. No trimestral são 2 avaliações de brinde e no semestral são 3."
+                  : "Depois que escolher um plano pago, as regras de taxa e avaliações inclusas passam a valer."}
+              </p>
+            </label>
+            <label className={`choice-card ${evaluationPreference === "send_info" ? "selected" : ""}`}>
+              <input
+                checked={evaluationPreference === "send_info"}
+                name="evaluationPreference"
+                onChange={() => setEvaluationPreference("send_info")}
+                type="radio"
+              />
+              <strong>Enviar minhas informações</strong>
+              <span>Sem agendar avaliação presencial agora</span>
+              <p>Você me passa os dados e eu deixo sua ficha pronta para acompanhar você de perto.</p>
+            </label>
+          </div>
+        </fieldset>
       ) : null}
 
       <button className="button primary submit" disabled={loading} type="submit">
-        {loading ? "Salvando..." : mode === "public" ? "Cadastrar e ir para pagamento" : "Cadastrar aluno"}
+        {loading
+          ? "Salvando..."
+          : mode === "public"
+            ? publicSignupMode === "trial"
+              ? "Criar conta grátis"
+              : "Cadastrar e ir para pagamento"
+            : "Cadastrar aluno"}
       </button>
     </form>
   );
 }
 
-function AdminLogin({ onLogin }: { onLogin: (admin: AdminSession) => void }) {
+function AdminLogin({ onLogin, onBack }: { onLogin: (admin: AdminSession) => void; onBack: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -940,6 +1022,9 @@ function AdminLogin({ onLogin }: { onLogin: (admin: AdminSession) => void }) {
   return (
     <section className="center-screen">
       <form className="panel login-panel" onSubmit={submit}>
+        <button className="button secondary small login-panel-back" onClick={onBack} type="button">
+          Voltar ao site
+        </button>
         <p className="eyebrow">Admin</p>
         <h2>Entrar no painel</h2>
         {error ? <p className="error">{error}</p> : null}
@@ -2438,7 +2523,7 @@ function AdminPanel({ admin, onLogout }: { admin: AdminSession; onLogout: () => 
   );
 }
 
-function StudentLogin({ onLogin }: { onLogin: () => void }) {
+function StudentLogin({ onLogin, onBack }: { onLogin: () => void; onBack: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -2462,6 +2547,9 @@ function StudentLogin({ onLogin }: { onLogin: () => void }) {
   return (
     <section className="center-screen">
       <form className="panel login-panel" onSubmit={submit}>
+        <button className="button secondary small login-panel-back" onClick={onBack} type="button">
+          Voltar ao site
+        </button>
         <p className="eyebrow">Área do aluno</p>
         <h2>Acessar minhas informações</h2>
         {error ? <p className="error">{error}</p> : null}
@@ -2854,6 +2942,26 @@ function StudentArea({ onLogout }: { onLogout: () => void }) {
           Sair
         </button>
       </nav>
+      {data.student.subscriptionStatus === "trial" ? (
+        <section className="panel detail-panel">
+          <p className="eyebrow">Período gratuito</p>
+          <p>
+            {(() => {
+              const d = trialDaysRemaining(data.student.subscriptionEndsAt);
+              const until = data.student.subscriptionEndsAt
+                ? formatDate(data.student.subscriptionEndsAt)
+                : "";
+              if (d === null) {
+                return "Você está testando a consultoria sem custo. Quando acabar o prazo, escolha um plano em Assinatura para continuar.";
+              }
+              if (d === 0) {
+                return `Seu acesso gratuito termina hoje${until ? ` (${until})` : ""}. Abra Assinatura e escolha um plano.`;
+              }
+              return `Faltam cerca de ${d} dia${d === 1 ? "" : "s"} de teste gratuito${until ? ` (até ${until})` : ""}. Depois, escolha um plano pago para seguir.`;
+            })()}
+          </p>
+        </section>
+      ) : null}
       {message ? <p className="success">{message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
       <section className="panel result-panel">
@@ -3408,7 +3516,7 @@ function PublicSite({ setView }: { setView: (view: View) => void }) {
             <span className="pill">Como funciona</span>
             <h2>Seu acompanhamento</h2>
             <p>
-              Cadastro e escolha do plano, treino inicial, avaliação comigo, plano completo e reavaliação
+              14 dias grátis para testar ou assinatura na hora — treino inicial, avaliação e acompanhamento
               a cada 3 meses. Tudo alinhado ao que combinarmos.
             </p>
           </aside>
@@ -3496,6 +3604,7 @@ export default function App() {
     if (adminMode === "login") {
       return (
         <AdminLogin
+          onBack={() => setView("home")}
           onLogin={(session) => {
             setAdmin(session);
             setAdminMode("panel");
@@ -3517,6 +3626,7 @@ export default function App() {
     }
     return (
       <AdminLogin
+        onBack={() => setView("home")}
         onLogin={(session) => {
           setAdmin(session);
           setAdminMode("panel");
@@ -3528,7 +3638,7 @@ export default function App() {
   if (view === "student") {
     if (studentMode === "loading") return <SessionLoading label="Verificando sessão do aluno…" />;
     if (studentMode === "login") {
-      return <StudentLogin onLogin={() => setStudentMode("area")} />;
+      return <StudentLogin onBack={() => setView("home")} onLogin={() => setStudentMode("area")} />;
     }
     return (
       <StudentArea

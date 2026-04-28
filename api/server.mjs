@@ -11,6 +11,23 @@ const jwtSecret = process.env.JWT_SECRET ?? "dev-secret-change-me";
 const appBaseUrl = process.env.APP_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBaseUrl = process.env.API_BASE_URL ?? `http://127.0.0.1:${port}`;
 const mercadoPagoAccessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN ?? "";
+/** Id interno: primeiro cadastro com dias grátis (sem plano pago). */
+const TRIAL_SIGNUP_PLAN_ID = "trial_free";
+
+function studentTrialDays() {
+  const n = Number(process.env.STUDENT_TRIAL_DAYS ?? 14);
+  return Number.isFinite(n) && n > 0 && n <= 90 ? Math.floor(n) : 14;
+}
+
+/** Aceita trial_free, trial, espaços ou maiúsculas vindos do cliente. */
+function normalizeSubscriptionPlanIdFromRequest(body) {
+  const raw = String(body?.subscriptionPlanId ?? "monthly")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  if (raw === TRIAL_SIGNUP_PLAN_ID || raw === "trial") return TRIAL_SIGNUP_PLAN_ID;
+  return raw;
+}
 
 function moneyCents(name, fallback) {
   const value = Number(process.env[name] ?? fallback);
@@ -194,10 +211,10 @@ async function confirmStudentPaymentById(studentId) {
     `UPDATE students
         SET payment_status = 'confirmed',
             subscription_status = 'active',
-            status = IF(status = 'pending_payment', 'awaiting_evaluation', status),
+            status = IF(status IN ('pending_payment', 'awaiting_evaluation'), 'awaiting_evaluation', status),
             payment_confirmed_at = NOW(),
-            subscription_started_at = COALESCE(subscription_started_at, NOW()),
-            subscription_ends_at = COALESCE(subscription_ends_at, DATE_ADD(NOW(), INTERVAL COALESCE(subscription_months, 1) MONTH))
+            subscription_started_at = NOW(),
+            subscription_ends_at = DATE_ADD(NOW(), INTERVAL COALESCE(subscription_months, 1) MONTH)
       WHERE id = ?
       LIMIT 1`,
     [studentId]
@@ -205,8 +222,15 @@ async function confirmStudentPaymentById(studentId) {
   return result.affectedRows > 0;
 }
 
+async function releaseEvaluationSlotsForStudent(studentId) {
+  await pool.query(
+    "UPDATE evaluation_slots SET status = 'available', student_id = NULL WHERE student_id = ? AND status = 'booked'",
+    [studentId]
+  );
+}
+
 async function refreshStudentAccess(studentId) {
-  const [expiredRows] = await pool.query(
+  const [activeExpired] = await pool.query(
     `SELECT id
        FROM students
       WHERE id = ?
@@ -216,21 +240,53 @@ async function refreshStudentAccess(studentId) {
       LIMIT 1`,
     [studentId]
   );
-  if (!expiredRows.length) return;
+  if (activeExpired.length) {
+    await pool.query(
+      `UPDATE students
+          SET subscription_status = 'expired',
+              payment_status = 'expired',
+              status = 'pending_payment',
+              included_evaluations_remaining = 0
+        WHERE id = ?
+        LIMIT 1`,
+      [studentId]
+    );
+    await releaseEvaluationSlotsForStudent(studentId);
+  }
+
+  const [trialExpired] = await pool.query(
+    `SELECT id
+       FROM students
+      WHERE id = ?
+        AND subscription_status = 'trial'
+        AND subscription_ends_at IS NOT NULL
+        AND subscription_ends_at < NOW()
+      LIMIT 1`,
+    [studentId]
+  );
+  if (!trialExpired.length) return;
   await pool.query(
     `UPDATE students
-        SET subscription_status = 'expired',
-            payment_status = 'expired',
+        SET subscription_status = 'pending_payment',
+            payment_status = 'pending',
             status = 'pending_payment',
-            included_evaluations_remaining = 0
+            subscription_plan_id = NULL,
+            subscription_plan_name = NULL,
+            subscription_months = NULL,
+            subscription_price_cents = NULL,
+            subscription_started_at = NULL,
+            subscription_ends_at = NULL,
+            payment_confirmed_at = NULL,
+            payment_provider = NULL,
+            payment_reference = NULL,
+            included_evaluations_remaining = 0,
+            evaluation_fee_required = 0,
+            evaluation_fee_cents = 0
       WHERE id = ?
       LIMIT 1`,
     [studentId]
   );
-  await pool.query(
-    "UPDATE evaluation_slots SET status = 'available', student_id = NULL WHERE student_id = ? AND status = 'booked'",
-    [studentId]
-  );
+  await releaseEvaluationSlotsForStudent(studentId);
 }
 
 function signAdmin(admin) {
@@ -349,8 +405,8 @@ function normalizeStudent(body) {
     observations: body.observations ? String(body.observations).trim() : null,
     temporaryPlan: body.temporaryPlan ?? null,
     evaluationSlotId: body.evaluationSlotId ? Number(body.evaluationSlotId) : null,
-    subscriptionPlanId: String(body.subscriptionPlanId ?? "monthly"),
-    evaluationPreference: String(body.evaluationPreference ?? "team")
+    subscriptionPlanId: normalizeSubscriptionPlanIdFromRequest(body),
+    evaluationPreference: String(body.evaluationPreference ?? "team").trim()
   };
 }
 
@@ -372,7 +428,12 @@ function validateStudent(student) {
   if (!student.goal || !student.modality || !student.experience) {
     return "Objetivo, modalidade e nível são obrigatórios.";
   }
-  if (!subscriptionPlans[student.subscriptionPlanId]) return "Plano selecionado é inválido.";
+  if (
+    student.subscriptionPlanId !== TRIAL_SIGNUP_PLAN_ID &&
+    !subscriptionPlans[student.subscriptionPlanId]
+  ) {
+    return "Plano selecionado é inválido.";
+  }
   if (!["team", "send_info"].includes(student.evaluationPreference)) {
     return "Escolha como deseja realizar a avaliação.";
   }
@@ -769,7 +830,67 @@ function buildFallbackSuggestedPlan(student) {
   };
 }
 
+async function insertTrialStudent(student) {
+  const connection = await pool.getConnection();
+  const days = studentTrialDays();
+  try {
+    await connection.beginTransaction();
+    const passwordHash = await bcrypt.hash(student.password, 10);
+    const planLabel = `Período gratuito (${days} dias)`;
+    const [result] = await connection.query(
+      `INSERT INTO students
+        (name, username, password_hash, email, phone, age, height_cm, weight_kg, goal, modality, experience,
+         available_days, session_minutes, injury, observations, status, subscription_status,
+         subscription_plan_id, subscription_plan_name, subscription_months, subscription_price_cents,
+         subscription_started_at, subscription_ends_at, payment_status, payment_provider, payment_reference,
+         payment_confirmed_at, evaluation_preference, evaluation_fee_required, evaluation_fee_cents,
+         included_evaluations_remaining, temporary_plan_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_evaluation', 'trial',
+         NULL, ?, NULL, 0,
+         NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 'confirmed', 'trial', ?, NOW(), ?, 0, 0, 0, ?)`,
+      [
+        student.name,
+        student.username,
+        passwordHash,
+        student.email,
+        student.phone,
+        student.age,
+        student.heightCm,
+        student.weightKg,
+        student.goal,
+        student.modality,
+        student.experience,
+        student.availableDays,
+        student.sessionMinutes,
+        student.injury,
+        student.observations,
+        planLabel,
+        days,
+        `trial-${Date.now()}`,
+        student.evaluationPreference,
+        student.temporaryPlan ? JSON.stringify(student.temporaryPlan) : null
+      ]
+    );
+    const studentId = result.insertId;
+    await connection.commit();
+    return studentId;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function insertStudent(student, { paymentConfirmed = false } = {}) {
+  if (student.subscriptionPlanId === TRIAL_SIGNUP_PLAN_ID) {
+    if (paymentConfirmed) {
+      throw Object.assign(new Error("Cadastro em período gratuito não combina com este fluxo."), {
+        statusCode: 400
+      });
+    }
+    return insertTrialStudent(student);
+  }
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -858,7 +979,7 @@ async function insertStudent(student, { paymentConfirmed = false } = {}) {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "pamelapersonal-api" });
+  res.json({ ok: true, service: "pamelapersonal-api", studentTrialSignup: true });
 });
 
 app.get("/api/public/evaluation-slots", async (_req, res) => {
@@ -882,6 +1003,23 @@ app.post("/api/public/students", async (req, res) => {
       return;
     }
     const id = await insertStudent(student, { paymentConfirmed: false });
+    if (student.subscriptionPlanId === TRIAL_SIGNUP_PLAN_ID) {
+      const [trialRows] = await pool.query(
+        "SELECT subscription_ends_at AS trialEndsAt FROM students WHERE id = ? LIMIT 1",
+        [id]
+      );
+      const days = studentTrialDays();
+      res.status(201).json({
+        id,
+        status: "awaiting_evaluation",
+        subscriptionStatus: "trial",
+        paymentStatus: "confirmed",
+        paymentUrl: null,
+        trialEndsAt: trialRows[0]?.trialEndsAt ?? null,
+        message: `Conta criada! Você tem ${days} dias gratuitos para testar a consultoria. Depois, escolha um plano para continuar.`
+      });
+      return;
+    }
     const plan = subscriptionPlans[student.subscriptionPlanId] ?? subscriptionPlans.monthly;
     const payment = await createMercadoPagoPreference({
       studentId: id,

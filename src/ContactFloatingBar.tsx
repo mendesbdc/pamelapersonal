@@ -37,7 +37,9 @@ export function ContactFloatingBar() {
 
   if (!hasWa && !hasMeet) return null;
 
-  const text = String(import.meta.env.VITE_WHATSAPP_MESSAGE ?? "").trim();
+  const text =
+    String(import.meta.env.VITE_WHATSAPP_MESSAGE ?? "").trim() ||
+    "Olá! Gostaria de saber mais sobre a consultoria.";
   const params = new URLSearchParams();
   if (text) params.set("text", text);
   const q = params.toString();
